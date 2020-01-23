@@ -34,41 +34,43 @@ func main() {
 		}
 	}
 
-	mergeImgFiles, _ := ioutil.ReadDir("./merge-item")
+	mergeImgFiles, _ := ioutil.ReadDir("merge-item")
 	if len(mergeImgFiles) == 0 {
 		fmt.Println("合成する画像が存在しませんでした。merge-item ディレクトリに合成したい画像を格納してください。")
 		os.Exit(-1)
 	}
-	if len(mergeImgFiles) > 1 {
-		fmt.Println("合成する画像が2つ以上存在します。1つしか合成することができません。")
-		os.Exit(-1)
-	}
 
 	// image.Decodeのunexpected EOF対策
-	imgHeader := bytes.NewBuffer(nil)
-	mergeImgSrc, _ := os.Open("merge-item/" + mergeImgFiles[0].Name())
-	mergeImgReader := io.TeeReader(mergeImgSrc, imgHeader)
 
-	_, mergeImgType, err := image.DecodeConfig(mergeImgReader)
-	if err != nil {
-		fmt.Printf("画像読み込み処理でエラーが発生しました。\n\n%s\n", err.Error())
-		os.Exit(-1)
-	}
-	if !checkImgType(mergeImgType) {
-		fmt.Println("合成する画像はJPEG またはPNGを指定する必要があります。")
-		os.Exit(-1)
-	}
+	mergeImgs := []image.Image{}
+	for _, mergeImgFile := range mergeImgFiles {
+		fmt.Printf("読込中: %s\n", mergeImgFile.Name())
+		imgHeader := bytes.NewBuffer(nil)
+		mergeImgSrc, _ := os.Open("merge-item/" + mergeImgFile.Name())
+		mergeImgReader := io.TeeReader(mergeImgSrc, imgHeader)
 
-	var mergeImg image.Image
-	mergeImageMultiReader := io.MultiReader(imgHeader, mergeImgSrc)
-	if mergeImgType == "jpeg" {
-		mergeImg, err = jpeg.Decode(mergeImageMultiReader)
-	} else {
-		mergeImg, err = png.Decode(mergeImageMultiReader)
-	}
-	if err != nil {
-		fmt.Printf("画像読み込み処理でエラーが発生しました。\n\n%s\n", err.Error())
-		os.Exit(-1)
+		_, mergeImgType, err := image.DecodeConfig(mergeImgReader)
+		if err != nil {
+			fmt.Printf("%s は画像ファイルではないためスキップします。\n", mergeImgFile.Name())
+			continue
+		}
+		if !checkImgType(mergeImgType) {
+			fmt.Printf("合成する画像はJPEG またはPNGを指定する必要があります。\n%s は画像ファイルではないためスキップします。\n", mergeImgFile.Name())
+			continue
+		}
+
+		var mergeImg image.Image
+		mergeImageMultiReader := io.MultiReader(imgHeader, mergeImgSrc)
+		if mergeImgType == "jpeg" {
+			mergeImg, err = jpeg.Decode(mergeImageMultiReader)
+		} else {
+			mergeImg, err = png.Decode(mergeImageMultiReader)
+		}
+		if err != nil {
+			fmt.Printf("画像読み込み処理でエラーが発生しました。\n\nファイル名: %s\n%s\n", mergeImgFile.Name(), err.Error())
+			os.Exit(-1)
+		}
+		mergeImgs = append(mergeImgs, mergeImg)
 	}
 
 	originalImgFiles, _ := ioutil.ReadDir("./original")
@@ -77,17 +79,19 @@ func main() {
 		os.Exit(-1)
 	}
 	for _, originalImgFile := range originalImgFiles {
+		fmt.Printf("読込中: %s\n", originalImgFile.Name())
+		imgHeader := bytes.NewBuffer(nil)
 		originalImgSrc, _ := os.Open("original/" + originalImgFile.Name())
 		originalImgReader := io.TeeReader(originalImgSrc, imgHeader)
 
 		_, originalImgType, err := image.DecodeConfig(originalImgReader)
 		if err != nil {
-			fmt.Printf("画像読み込み処理でエラーが発生しました。\n\n%s\n", err.Error())
-			os.Exit(-1)
+			fmt.Printf("%s は画像ファイルではないためスキップします。\n", originalImgFile.Name())
+			continue
 		}
 		if !checkImgType(originalImgType) {
-			fmt.Println("合成する画像はJPEG またはPNGを指定する必要があります。")
-			os.Exit(-1)
+			fmt.Printf("合成する画像はJPEG またはPNGを指定する必要があります。\n%s は画像ファイルではないためスキップします。\n", originalImgFile.Name())
+			continue
 		}
 
 		var originalImg image.Image
@@ -98,13 +102,15 @@ func main() {
 			originalImg, err = png.Decode(originalImageMultiReader)
 		}
 		if err != nil {
-			fmt.Printf("画像読み込み処理でエラーが発生しました。\n\n%s\n", err.Error())
+			fmt.Printf("画像読み込み処理でエラーが発生しました。\n\nファイル名: %s\n%s\n", originalImgFile.Name(), err.Error())
 			os.Exit(-1)
 		}
 
 		rgba := image.NewRGBA(originalImg.Bounds())
 		draw.Draw(rgba, originalImg.Bounds(), originalImg, image.Point{0, 0}, draw.Src)
-		draw.Draw(rgba, mergeImg.Bounds(), mergeImg, image.Point{0, 0}, draw.Over)
+		for _, i := range mergeImgs {
+			draw.Draw(rgba, i.Bounds(), i, image.Point{0, 0}, draw.Over)
+		}
 
 		// 出力先に既にファイルが存在する場合、一旦消す
 		outputPath := "processing/" + originalImgFile.Name()
