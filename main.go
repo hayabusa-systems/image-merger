@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
 func checkImgType(fileType string) bool {
@@ -17,24 +18,32 @@ func checkImgType(fileType string) bool {
 }
 
 func main() {
+	// 実行ファイルのパスを取得する。
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Printf("実行ファイルのパスを取得するのに失敗しました。: %s\n", err.Error())
+		os.Exit(-1)
+	}
+	currentDir := filepath.Dir(exe)
+
 	// ディレクトリの確認、オリジナルの画像はoriginal、マージする画像はmerge-item、生成した画像はprocessingに格納する。
-	if f, err := os.Stat("original"); os.IsNotExist(err) || !f.IsDir() {
+	if f, err := os.Stat(filepath.Join(currentDir, "original")); os.IsNotExist(err) || !f.IsDir() {
 		fmt.Println("合成元の画像を格納するディレクトリが存在しませんでした。実行ファイルと同じディレクトリに original ディレクトリを作成してください。")
 		os.Exit(-1)
 	}
-	if f, err := os.Stat("merge-item"); os.IsNotExist(err) || !f.IsDir() {
+	if f, err := os.Stat(filepath.Join(currentDir, "merge-item")); os.IsNotExist(err) || !f.IsDir() {
 		fmt.Println("合成する画像を格納するディレクトリが存在しませんでした。実行ファイルと同じディレクトリに merge-item ディレクトリを作成してください。")
 		os.Exit(-1)
 	}
 	// 出力用のディレクトリが存在しない場合作成する。
-	if f, err := os.Stat("processing"); os.IsNotExist(err) || !f.IsDir() {
-		if err = os.Mkdir("processing", os.ModeDir); err != nil {
+	if f, err := os.Stat(filepath.Join(currentDir, "processing")); os.IsNotExist(err) || !f.IsDir() {
+		if err = os.Mkdir(filepath.Join(currentDir, "processing"), os.ModeDir); err != nil {
 			fmt.Printf("出力用ディレクトリを作成するのに失敗しました。: %s\n", err.Error())
 			os.Exit(-1)
 		}
 	}
 
-	mergeImgFiles, _ := ioutil.ReadDir("merge-item")
+	mergeImgFiles, _ := ioutil.ReadDir(filepath.Join(currentDir, "merge-item"))
 	if len(mergeImgFiles) == 0 {
 		fmt.Println("合成する画像が存在しませんでした。merge-item ディレクトリに合成したい画像を格納してください。")
 		os.Exit(-1)
@@ -46,7 +55,7 @@ func main() {
 	for _, mergeImgFile := range mergeImgFiles {
 		fmt.Printf("読込中: %s\n", mergeImgFile.Name())
 		imgHeader := bytes.NewBuffer(nil)
-		mergeImgSrc, _ := os.Open("merge-item/" + mergeImgFile.Name())
+		mergeImgSrc, _ := os.Open(filepath.Join(currentDir, "merge-item/", mergeImgFile.Name()))
 		mergeImgReader := io.TeeReader(mergeImgSrc, imgHeader)
 
 		_, mergeImgType, err := image.DecodeConfig(mergeImgReader)
@@ -73,7 +82,7 @@ func main() {
 		mergeImgs = append(mergeImgs, mergeImg)
 	}
 
-	originalImgFiles, _ := ioutil.ReadDir("./original")
+	originalImgFiles, _ := ioutil.ReadDir(filepath.Join(currentDir, "original"))
 	if len(originalImgFiles) == 0 {
 		fmt.Println("合成元の画像が存在しませんでした。original ディレクトリに合成したい画像を格納してください。")
 		os.Exit(-1)
@@ -81,7 +90,7 @@ func main() {
 	for _, originalImgFile := range originalImgFiles {
 		fmt.Printf("読込中: %s\n", originalImgFile.Name())
 		imgHeader := bytes.NewBuffer(nil)
-		originalImgSrc, _ := os.Open("original/" + originalImgFile.Name())
+		originalImgSrc, _ := os.Open(filepath.Join(currentDir, "original", originalImgFile.Name()))
 		originalImgReader := io.TeeReader(originalImgSrc, imgHeader)
 
 		_, originalImgType, err := image.DecodeConfig(originalImgReader)
@@ -113,7 +122,7 @@ func main() {
 		}
 
 		// 出力先に既にファイルが存在する場合、一旦消す
-		outputPath := "processing/" + originalImgFile.Name()
+		outputPath := filepath.Join(currentDir, "processing/", originalImgFile.Name())
 		if _, err = os.Stat(outputPath); err == nil {
 			if err = os.Remove(outputPath); err != nil {
 				fmt.Printf("ファイルの削除に失敗しました。 : %s\n", err.Error())
